@@ -884,9 +884,9 @@ class SSD352EFFB0(nn.Module):
         :return: prior boxes in center-size coordinates, a tensor of dimensions (pre-calculated, 4)
         """
 
-        fmap_dims = {'base_8s': 88,
-                     'base_16s': 44,
-                     'base_32s': 22,
+        fmap_dims = {'base_8s': 44,
+                     'base_16s': 22,
+                     'base_32s': 11,
                      'extra_conv1b': 5,
                      'extra_conv2b': 3,
                      'extra_conv3b': 1}
@@ -1077,9 +1077,9 @@ class MultiBoxLoss(nn.Module):
         n_priors = self.priors_cxcy.size(0)
         n_classes = predicted_scores.size(2)
         
-        print(n_priors)
-        print(predicted_locs.size(1))
-        print(predicted_scores.size(1))
+        #print(n_priors)
+        #print(predicted_locs.size(1))
+        #print(predicted_scores.size(1))
         assert n_priors == predicted_locs.size(1) == predicted_scores.size(1)
 
         true_locs = torch.zeros((batch_size, n_priors, 4), dtype=torch.float).to(device)  # (N, pre-calculated, 4)

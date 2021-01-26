@@ -73,12 +73,12 @@ def main():
     criterion = MultiBoxLoss(priors_cxcy=model.priors_cxcy).to(device)
 
     # Custom dataloaders
-    train_dataset = PascalVOCDataset(data_folder, dim=704, split='train',
+    train_dataset = PascalVOCDataset(data_folder, dim=352, split='train',
                                      keep_difficult=keep_difficult)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
                                                collate_fn=train_dataset.collate_fn, num_workers=workers,
                                                pin_memory=True)  # note that we're passing the collate function here
-    test_dataset = PascalVOCDataset(data_folder, dim=704, split='test',
+    test_dataset = PascalVOCDataset(data_folder, dim=352, split='test',
                                      keep_difficult=keep_difficult)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=True,
                                                collate_fn=train_dataset.collate_fn, num_workers=workers,
