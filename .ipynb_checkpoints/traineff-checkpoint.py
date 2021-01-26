@@ -25,7 +25,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Learning parameters
 checkpoint = None  # path to model checkpoint, None if none
-batch_size = 16  # batch size
+batch_size = 64  # batch size
 iterations = 150000  # number of iterations to train
 workers = 0  # number of workers for loading data in the DataLoader
 print_freq = 100  # print training status every __ batches
@@ -48,7 +48,7 @@ def main():
     # Initialize model or load checkpoint
     if checkpoint is None:
         start_epoch = 0
-        model = SSD352EFFB0(width_coeff=1,depth_coeff=1,n_classes=n_classes)
+        model = SSD352EFFB0(width_coeff=1,depth_coeff=1.1,n_classes=n_classes)
         # Initialize the optimizer, with twice the default learning rate for biases, as in the original Caffe repo
         biases = list()
         not_biases = list()
