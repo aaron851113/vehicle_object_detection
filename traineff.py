@@ -38,7 +38,6 @@ grad_clip = None  # clip if gradients are exploding, which may happen at larger 
 
 cudnn.benchmark = True
 
-
 def main():
     """
     Training.

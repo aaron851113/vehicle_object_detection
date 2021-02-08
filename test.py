@@ -7,13 +7,13 @@ import glob
 from thop import profile
 from queue import Queue
 from PIL import Image
-from src.model_inference_ObjectDetect_Elanet import detect
-from models.multi_tasks import ELANetV3_modified_sigapore
+from EfficientNet import SSD352EFFB0, MultiBoxLoss
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 #torch.cuda.set_device(1)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print('paltform:',device)
+n_classes = 5
 
 def createFolder(directory):
     try:
@@ -24,7 +24,7 @@ def createFolder(directory):
         print ('Error: Creating directory. ' +  directory)
 
 def fun_load_od_model(checkpoint_path):
-    model_od = ELANetV3_modified_sigapore.SSD352(n_classes=5)
+    model_od = SSD352EFFB0(width_coeff=1,depth_coeff=1.1,n_classes=n_classes)
     model_od_dict = model_od.state_dict()
     model_refernce = torch.load(checkpoint_path, map_location=device)
     model_refernce = model_refernce['model'].state_dict()
@@ -39,13 +39,12 @@ def fun_load_od_model(checkpoint_path):
 
 
 # Load Object Detection model
-checkpoint_path = './models/weights/BEST_checkpoint.pth.tar'
+checkpoint_path = './BEST_checkpoint.pth.tar'
 Tensor = torch.cuda.FloatTensor
 createFolder('./demo')
-model_od = fun_load_od_model(checkpoint_path)
 
 count = 0
-for img_path in glob.glob('./ivslab_train/JPEGImages/All/1_40_00.mp4/*.jpg'):
+for img_path in glob.glob('../AIdea/ivslab_train/JPEGImages/All/1_40_00.mp4/*.jpg'):
     img_name = img_path.split('/')
     img_name = img_name[-1]
     print(img_name)
@@ -56,12 +55,12 @@ for img_path in glob.glob('./ivslab_train/JPEGImages/All/1_40_00.mp4/*.jpg'):
         
     frame_np_img = cv2.imread(img_path)
     frame_pil_img = Image.fromarray(frame_np_img)
+    frame_pil_img = frame_pil_img.to(device)
     
-    t_start_decision = time.time()
-    #_, bboxes = detect(model_od, frame_pil_img, min_score=0.50, max_overlap=0.5, top_k=50,device=device)
-    # min_score=0.01, max_overlap=0.45,top_k=200
-    _, bboxes = detect(model_od, frame_pil_img, min_score=0.25, max_overlap=0.45, top_k=50,device=device)
-    t_end_decision = time.time()
+    predicted_locs, predicted_scores = model(frame_pil_img)
+    bboxes, labels, scores = model.detect_objects(predicted_locs, predicted_scores, min_score=0.2,
+                                                             max_overlap=0.5, top_k=200)
+
     print('bboxes:',bboxes)
     
     for bbox in bboxes :
