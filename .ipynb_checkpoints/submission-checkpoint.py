@@ -3,19 +3,17 @@ import torch
 import numpy as np
 import cv2
 import csv
-import time
 import glob
-from thop import profile
-from queue import Queue
 from PIL import Image
-from src.model_inference_ObjectDetect_Elanet import detect
-from models.multi_tasks import ELANetV3_modified_sigapore
+from detect import detect
+from torchvision import transforms
 
 def convert_xyxy_to_xywh(x1,y1,x2,y2):
     w = x2 - x1
     h = y2 - y1
     return x1,y1,w,h
-    
+
+"""
 def fun_load_od_model(checkpoint_path):
     model_od = ELANetV3_modified_sigapore.SSD352(n_classes=5)
     model_od_dict = model_od.state_dict()
@@ -28,7 +26,7 @@ def fun_load_od_model(checkpoint_path):
     model_od.eval()
     print('load model (Object detection) : successful')
     return model_od
-
+    
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 #torch.cuda.set_device(1)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -38,41 +36,54 @@ print('paltform:',device)
 checkpoint_path = './models/weights/BEST_checkpoint.pth.tar'
 Tensor = torch.cuda.FloatTensor
 model_od = fun_load_od_model(checkpoint_path)
+"""
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Load model checkpoint
+checkpoint = 'checkpoint_ssd352.pth.tar'
+checkpoint = torch.load(checkpoint)
+start_epoch = checkpoint['epoch'] + 1
+print('\nLoaded checkpoint from epoch %d.\n' % start_epoch)
+model = checkpoint['model']
+model = model.to(device)
+model.eval()
+
+# Transforms
+resize = transforms.Resize((352, 352))
+to_tensor = transforms.ToTensor()
+normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
 
 
 label_dict = {'vehicle':1, 'pedestrian':2, 'scooter':3, 'bicycle':4} 
 
 # detect on write to csv file
 columns = ["image_filename", "label_id", "x", "y", "w", "h","confidence"]
-with open('./ivslab_test_public/submission.csv', 'w', newline='') as file:
+with open('../AIdea/ivslab_test_public/submission.csv', 'w', newline='') as file:
     csvfile = csv.writer(file)
-    img_list = sorted( glob.glob('./ivslab_test_public/JPEGImages/All/*.jpg'))
+    img_list = sorted( glob.glob('../AIdea/ivslab_test_public/JPEGImages/All/*.jpg'))
     csvfile.writerow(columns)
  
     for img_path in img_list:
         img_name = img_path.split('/')
         img_name = img_name[-1]
         print(img_name)
-        frame_np_img = cv2.imread(img_path)
-        frame_pil_img = Image.fromarray(frame_np_img)
-
-        #_, bboxes = detect(model_od, frame_pil_img, min_score=0.50, max_overlap=0.5, top_k=50,device=device)
-        # min_score=0.01, max_overlap=0.45,top_k=200
-        _, bboxes = detect(model_od, frame_pil_img, min_score=0.5, max_overlap=0.5, top_k=50,device=device)
-
-        for bbox in bboxes :
-            #print('box:',bbox)
-
-            points = bbox.get('points')
-            x1,y1,x2,y2 = int(points[0]), int(points[1]), int(points[2]), int(points[3])
-            cls_ = bbox.get('label')
-
-            frame_np_img = cv2.putText(frame_np_img, cls_, (x1-10, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
-            frame_np_img = cv2.rectangle(frame_np_img, (x1,y1), (x2,y2), (0, 0, 255), 3)
-            cv2.imwrite('./ivslab_test_public/test/test_'+img_name,frame_np_img)
+        
+        original_image = Image.open(img_path, mode='r')
+        original_image = original_image.convert('RGB')
+        
+        det_boxes, det_labels, det_scores = detect(original_image, img_name, min_score=0.5, max_overlap=0.5, top_k=50, save_img=False)
+        
+        if det_labels == ['background']:
+            continue
+        
+        for i in range(len(det_labels)):
+            x1,y1,x2,y2 = int(det_boxes[i][0]), int(det_boxes[i][1]), int(det_boxes[i][2]), int(det_boxes[i][3])
+            label = det_labels[i]
+            score = round(det_scores[0][i].item(),2)
             
+            cls_label = label_dict[label]
             x,y,w,h = convert_xyxy_to_xywh(x1,y1,x2,y2)
-            cls_label = label_dict[cls_]
-
-            csvfile.writerow([img_name,cls_label,x,y,w,h,0])
+            
+            csvfile.writerow([img_name,cls_label,x,y,w,h,score])
             

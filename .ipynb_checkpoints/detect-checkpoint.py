@@ -5,6 +5,15 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+def createFolder(directory):
+    try:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            print('=>>>>  Scuessfully Make folder :' + directory)
+    except OSError:
+        print ('Error: Creating directory. ' +  directory)
+
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model checkpoint
@@ -16,6 +25,8 @@ model = checkpoint['model']
 model = model.to(device)
 model.eval()
 
+createFolder('./demo')
+
 # Transforms
 resize = transforms.Resize((352, 352))
 to_tensor = transforms.ToTensor()
@@ -23,7 +34,9 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
 
 
-def detect(original_image, img_name, img_path, min_score, max_overlap, top_k, suppress=None):
+
+
+def detect(original_image, img_name, min_score, max_overlap, top_k, save_img, suppress=None):
     """
     Detect objects in an image with a trained SSD300, and visualize the results.
 
@@ -57,24 +70,29 @@ def detect(original_image, img_name, img_path, min_score, max_overlap, top_k, su
     # If no objects found, the detected labels will be set to ['0.'], i.e. ['background'] in SSD300.detect_objects() in model.py
     if det_labels == ['background']:
         # Just return original image
-        return original_image
+        return [],['background'],''
     
     # Annotate
-    annotate_image = original_image
-    #frame_np_img = cv2.imread(img_path)
-    #frame_pil_img = Image.fromarray(frame_np_img)
+    annotate_image = original_image.copy()
     frame_pil_img = cv2.cvtColor(np.array(annotate_image), cv2.COLOR_RGB2BGR)
-
+    
+    assert len(det_labels) == len(det_boxes) == len(det_scores[0])
+        
     for i in range(len(det_labels)):
         x1,y1,x2,y2 = int(det_boxes[i][0]), int(det_boxes[i][1]), int(det_boxes[i][2]), int(det_boxes[i][3])
         label = det_labels[i]
-        score = round(det_scores[0][i].item(),2)
+        score = round(det_scores[0][i].item(),4)
         score = str(score)
         
-        frame_pil_img = cv2.putText(frame_pil_img, label+'-'+score, (x1-10, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
-        frame_pil_img = cv2.rectangle(frame_pil_img, (x1,y1), (x2,y2), (0, 0, 255), 3)
+        if save_img:
+            frame_pil_img = cv2.putText(frame_pil_img, label+'-'+score, (x1-10, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2.LINE_AA)
+            frame_pil_img = cv2.rectangle(frame_pil_img, (x1,y1), (x2,y2), (0, 0, 255), 3)
+    if save_img:
+        cv2.imwrite('./demo/demo_'+img_name,frame_pil_img)
     
-    cv2.imwrite('./demo/demo_'+img_name,frame_pil_img)
+    del annotate_image
+        
+    return det_boxes, det_labels, det_scores
 
 
 if __name__ == '__main__':
@@ -89,4 +107,4 @@ if __name__ == '__main__':
             break
         original_image = Image.open(img_path, mode='r')
         original_image = original_image.convert('RGB')
-        detect(original_image, img_name, img_path, min_score=0.2, max_overlap=0.5, top_k=200)
+        detect(original_image, img_name, min_score=0.2, max_overlap=0.5, top_k=200 ,save_img=True)
