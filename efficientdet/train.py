@@ -30,7 +30,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Learning parameters
 checkpoint = None  # path to model checkpoint, None if none
-batch_size = 64  # batch size
+batch_size = 16  # batch size
 iterations = 80000  # number of iterations to train
 workers = 0  # number of workers for loading data in the DataLoader
 print_freq = 100  # print training status every __ batches
@@ -141,21 +141,17 @@ def train(train_loader, model, optimizer, epoch,epochs):
     losses = AverageMeter()  # loss
 
     start = time.time()
-    
+    epoch_loss = []
     # Batches
-    for i, (images, boxes, labels) in enumerate(train_loader):
+    for i, (images, annotations) in enumerate(train_loader):
         data_time.update(time.time() - start)
 
         # Move to default device
         images = images.to(device)  # (batch_size (N), 3, 300, 300)
-        print('boxes:',boxes)
-        print('labels:',labels)
-        boxes = [b.to(device) for b in boxes]
-        labels = [l.to(device) for l in labels]
-        annotations = [boxes,labels]
+        annotations = [a.to(device) for a in annotations]
 
         # Forward prop.
-        cls_loss, reg_loss = model(images, boxes, labels, obj_list=params.obj_list)
+        cls_loss, reg_loss = model(images, annotations, obj_list=None)
         cls_loss = cls_loss.mean()
         reg_loss = reg_loss.mean()
         

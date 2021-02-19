@@ -393,7 +393,7 @@ def find_jaccard_overlap(set_1, set_2):
 # Some augmentation functions below have been adapted from
 # From https://github.com/amdegroot/ssd.pytorch/blob/master/utils/augmentations.py
 
-def expand(image, boxes, filler):
+def expand(image, annotations, filler):
     """
     Perform a zooming out operation by placing the image in a larger canvas of filler material.
 
@@ -426,13 +426,13 @@ def expand(image, boxes, filler):
     new_image[:, top:bottom, left:right] = image
 
     # Adjust bounding boxes' coordinates accordingly
-    new_boxes = boxes + torch.FloatTensor([left, top, left, top]).unsqueeze(
+    new_annotations = annotations + torch.FloatTensor([left, top, left, top, 0]).unsqueeze(
         0)  # (n_objects, 4), n_objects is the no. of objects in this image
 
-    return new_image, new_boxes
+    return new_image, new_annotations
 
 
-def random_crop(image, boxes, labels):
+def random_crop(image, annotations):
     """
     Performs a random crop in the manner stated in the paper. Helps to learn to detect larger and partial objects.
 
@@ -455,7 +455,7 @@ def random_crop(image, boxes, labels):
 
         # If not cropping
         if min_overlap is None:
-            return image, boxes, labels
+            return image, annotations
 
         # Try up to 50 times for this choice of minimum overlap
         # This isn't mentioned in the paper, of course, but 50 is chosen in paper authors' original Caffe repo
@@ -483,7 +483,7 @@ def random_crop(image, boxes, labels):
 
             # Calculate Jaccard overlap between the crop and the bounding boxes
             overlap = find_jaccard_overlap(crop.unsqueeze(0),
-                                           boxes)  # (1, n_objects), n_objects is the no. of objects in this image
+                                           annotations[:4])  # (1, n_objects), n_objects is the no. of objects in this image
             overlap = overlap.squeeze(0)  # (n_objects)
 
             # If not a single bounding box has a Jaccard overlap of greater than the minimum, try again
@@ -494,7 +494,7 @@ def random_crop(image, boxes, labels):
             new_image = image[:, top:bottom, left:right]  # (3, new_h, new_w)
 
             # Find centers of original bounding boxes
-            bb_centers = (boxes[:, :2] + boxes[:, 2:]) / 2.  # (n_objects, 2)
+            bb_centers = (annotations[:, :2] + annotations[:, 2:]) / 2.  # (n_objects, 2)
 
             # Find bounding boxes whose centers are in the crop
             centers_in_crop = (bb_centers[:, 0] > left) * (bb_centers[:, 0] < right) * (bb_centers[:, 1] > top) * (
@@ -505,17 +505,17 @@ def random_crop(image, boxes, labels):
                 continue
 
             # Discard bounding boxes that don't meet this criterion
-            new_boxes = boxes[centers_in_crop, :]
-            new_labels = labels[centers_in_crop]
+            new_annotations = annotations[centers_in_crop, :]
+            #new_labels = labels[centers_in_crop]
             #new_difficulties = difficulties[centers_in_crop]
 
             # Calculate bounding boxes' new coordinates in the crop
-            new_boxes[:, :2] = torch.max(new_boxes[:, :2], crop[:2])  # crop[:2] is [left, top]
-            new_boxes[:, :2] -= crop[:2]
-            new_boxes[:, 2:] = torch.min(new_boxes[:, 2:], crop[2:])  # crop[2:] is [right, bottom]
-            new_boxes[:, 2:] -= crop[:2]
+            new_annotations[:, :2] = torch.max(new_annotations[:, :2], crop[:2])  # crop[:2] is [left, top]
+            new_annotations[:, :2] -= crop[:2]
+            new_annotations[:, 2:] = torch.min(new_annotations[:, 2:], crop[2:])  # crop[2:] is [right, bottom]
+            new_annotations[:, 2:] -= crop[:2]
 
-            return new_image, new_boxes, new_labels
+            return new_image, new_annotations
 
 
 def flip(image, boxes):
@@ -594,7 +594,7 @@ def photometric_distort(image):
     return new_image
 
 
-def transform(image, boxes, labels, dim, split):
+def transform(image, annotations, dim, split):
     """
     Apply the transformations above.
 
@@ -613,8 +613,7 @@ def transform(image, boxes, labels, dim, split):
     std = [0.229, 0.224, 0.225]
 
     new_image = image
-    new_boxes = boxes
-    new_labels = labels
+    new_annotations = annotations
     #new_difficulties = difficulties
     # Skip the following operations for evaluation/testing
     if split == 'TRAIN':
@@ -627,28 +626,30 @@ def transform(image, boxes, labels, dim, split):
         # Expand image (zoom out) with a 50% chance - helpful for training detection of small objects
         # Fill surrounding space with the mean of ImageNet data that our base VGG was trained on
         if random.random() < 0.5:
-            new_image, new_boxes = expand(new_image, boxes, filler=mean)
+            new_image, new_annotations[:4]  = expand(new_image, new_annotations[:4] , filler=mean)
 
         # Randomly crop image (zoom in)
-        new_image, new_boxes, new_labels= random_crop(new_image, new_boxes, new_labels)
+        #new_image, new_annotations[:4] = random_crop(new_image, new_annotations[:4])
 
         # Convert Torch tensor to PIL image
         new_image = FT.to_pil_image(new_image)
 
         # Flip image with a 50% chance
         if random.random() < 0.5:
-            new_image, new_boxes = flip(new_image, new_boxes)
+            new_image, new_annotations[:, :4]  = flip(new_image, new_annotations[:, :4] )
 
     # Resize image to (300, 300) - this also converts absolute boundary coordinates to their fractional form
-    new_image, new_boxes = resize(new_image, new_boxes, dims=(dim, dim))
+    new_image, new_annotations[:, :4]  = resize(new_image, new_annotations[:, :4], dims=(dim, dim))
 
     # Convert PIL image to Torch tensor
     new_image = FT.to_tensor(new_image)
 
     # Normalize by mean and standard deviation of ImageNet data that our base VGG was trained on
     new_image = FT.normalize(new_image, mean=mean, std=std)
-
-    return new_image, new_boxes, new_labels
+    
+    #print('new_annotations:',new_annotations)
+    #print()
+    return new_image, new_annotations
 
 
 def adjust_learning_rate(optimizer, scale):

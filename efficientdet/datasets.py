@@ -53,21 +53,20 @@ class PascalVOCDataset(Dataset):
 
         # Read objects in this image (bounding boxes, labels, difficulties)
         objects = self.objects[i]
-        boxes = []
-        labels = []
+        annotations = []
         for object in objects:
-            boxes.append(object['point'])
+            bboxes = object['point']
             label_str = object['label']
             label_int = label_list[label_str]
-            labels.append(label_int)
-        boxes = torch.FloatTensor(boxes)  # (n_objects, 4)
-        labels = torch.LongTensor(labels)  # (n_objects)
+            bboxes.append(label_int)
+            annotations.append(bboxes)
+        annotations = torch.FloatTensor(annotations)  # (n_objects, 4)
         #difficulties = torch.ByteTensor(objects['difficulties'])  # (n_objects)
 
         # Apply transformations
-        image, boxes, labels = transform(image, boxes, labels, dim=self.dim, split=self.split)
+        image, annotations = transform(image, annotations, dim=self.dim, split=self.split)
 
-        return image, boxes, labels
+        return image, annotations
 
     def __len__(self):
         return len(self.images)
@@ -85,31 +84,29 @@ class PascalVOCDataset(Dataset):
         """
 
         images = list()
-        boxes = list()
-        labels = list()
+        annotations = list()
         #difficulties = list()
 
         for b in batch:
             images.append(b[0])
-            boxes.append(b[1])
-            labels.append(b[2])
+            annotations.append(b[1])
             #difficulties.append(b[3])
 
         images = torch.stack(images, dim=0)
 
-        return images, boxes, labels  # tensor (N, 3, 300, 300), 3 lists of N tensors each
+        return images, annotations  # tensor (N, 3, 300, 300), 3 lists of N tensors each
 
     
     
     
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_dataset = PascalVOCDataset("./data",split='train')
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1,
+    train_dataset = PascalVOCDataset("../data",split='train',dim=640)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=4,
                                                collate_fn=train_dataset.collate_fn,num_workers=1,
                                                pin_memory=True)
-    for i, (images, boxes, labels) in enumerate(train_loader):
+    for i, (images, annotations) in enumerate(train_loader):
         images = images.to(device)  # (batch_size (N), 3, 300, 300)
-        boxes = [b.to(device) for b in boxes]
-        labels = [l.to(device) for l in labels]
-        print(images,boxes,labels)
+        annotations = [a.to(device) for a in annotations]
+        #print(images,annotations)
+        print(annotations)
