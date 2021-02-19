@@ -5,8 +5,8 @@
 - backcone : EfficientNet-B1
 - head : SSD
 - Practice Git
-<img src="https://github.com/aaron851113/vehicle_object_detection/efficientnet_ssd/demo/demo_itp_160.jpg" width="300" height="200" />
-<img src="https://github.com/aaron851113/vehicle_object_detection/efficientnet_ssd/demo/demo_itp_218.jpg" width="300" height="200" />
+<img src="./efficientnet_ssd/demo/demo_itp_160.jpg" width="300" height="200" />
+<img src="./efficientnet_ssd/demo/demo_itp_218.jpg" width="300" height="200" />
 
 
 ### Efficientdet-D1
