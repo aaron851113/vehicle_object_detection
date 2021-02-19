@@ -640,199 +640,6 @@ class PredictionConvolutions_Upsample_NN(nn.Module):
         # return locs, classes_scores, base_8s_feats_seg
         return locs, classes_scores
 
-class PredictionConvolutions(nn.Module):
-    """
-    Convolutions to predict class scores and bounding boxes using lower and higher-level feature maps.
-
-    The bounding boxes (locations) are predicted as encoded offsets w.r.t each of the pre-calculated prior (default) boxes.
-    See 'cxcy_to_gcxgcy' in utils.py for the encoding definition.
-
-    The class scores represent the scores of each object class in each of the pre-calculated bounding boxes located.
-    A high score for 'background' = no object.
-    """
-
-    def __init__(self, n_classes):
-        """
-        :param n_classes: number of different types of objects
-        """
-        super(PredictionConvolutions, self).__init__()
-
-        self.n_classes = n_classes
-
-        # Number of prior-boxes we are considering per position in each feature map
-        n_boxes = {'base_8s': 4,
-                   'base_16s': 6,
-                   'base_32s': 6,
-                   'extra_conv1b': 6,
-                   'extra_conv2b': 4,
-                   'extra_conv3b': 4}
-        # 4 prior-boxes implies we use 4 different aspect ratios, etc.
-
-        # for 8s detection
-        self.base_8s_CBR = CBR(512, 256//2, 1)
-        # self.base_8s_C3BlockB = C3BlockB(256, 256 // 2)
-
-        # for 16s detection
-        self.base_16s_CBR = CBR(512, 256, 1)
-        # self.base_16s_DepDown = DepthWiseBlock(256//2, 256//2, 2, 1)
-        self.base_16s_DepDown = CBR(256//2, 256//2, 3, 2, 1)
-        # self.base_16s_C3BlockB = C3BlockB(256 // 2, 256 // 2)
-
-        # for 32s detection
-        self.base_32s_CBR = CBR(512, 256//2, 1)
-        # self.base_32s_C3BlockB = C3BlockB(256, 256 // 2)
-
-        # for extra detection
-        # self.extra_conv1b_C3BlockB = C3BlockB(256, 256 // 2)
-        # self.extra_conv2b_C3BlockB = C3BlockB(256, 256 // 2)
-        # self.extra_conv3b_C3BlockB = C3BlockB(256, 256 // 2)
-        self.extra_conv1b_CBR = CBR(256, 256 // 2, 1)
-        self.extra_conv2b_CBR = CBR(256, 256 // 2, 1)
-        self.extra_conv3b_CBR = CBR(256, 256 // 2, 1)
-
-        # for segmentation
-        # self.sample = InputProjectionA(3)
-        # self.base_8s_CBR_seg = CBR(256//2+3, 128, 1)
-        # self.base_8s_C3BlockB_seg = C3BlockB(128, 128 // 2)
-        # self.base_8s_seg_pred = nn.Conv2d(128//2, 2, kernel_size=1, padding=0)
-        # self.upsample_seg_pred = nn.Upsample(scale_factor=8, mode='bilinear',align_corners=False)
-
-        # Localization prediction convolutions (predict offsets w.r.t prior-boxes)
-        self.loc_base_8s = nn.Conv2d(256//2, n_boxes['base_8s'] * 4, kernel_size=3, padding=1)
-        self.loc_base_16s = nn.Conv2d(256//2, n_boxes['base_16s'] * 4, kernel_size=3, padding=1)
-        self.loc_base_32s = nn.Conv2d(256//2, n_boxes['base_32s'] * 4, kernel_size=3, padding=1)
-        self.loc_extra_conv1b = nn.Conv2d(256//2, n_boxes['extra_conv1b'] * 4, kernel_size=3, padding=1)
-        self.loc_extra_conv2b = nn.Conv2d(256//2, n_boxes['extra_conv2b'] * 4, kernel_size=3, padding=1)
-        self.loc_extra_conv3b = nn.Conv2d(256//2, n_boxes['extra_conv3b'] * 4, kernel_size=3, padding=1)
-
-        # Class prediction convolutions (predict classes in localization boxes)
-        self.cl_base_8s = nn.Conv2d(256//2, n_boxes['base_8s'] * n_classes, kernel_size=3, padding=1)
-        self.cl_base_16s = nn.Conv2d(256//2, n_boxes['base_16s'] * n_classes, kernel_size=3, padding=1)
-        self.cl_base_32s = nn.Conv2d(256//2, n_boxes['base_32s'] * n_classes, kernel_size=3, padding=1)
-        self.cl_extra_conv1b = nn.Conv2d(256//2, n_boxes['extra_conv1b'] * n_classes, kernel_size=3, padding=1)
-        self.cl_extra_conv2b = nn.Conv2d(256//2, n_boxes['extra_conv2b'] * n_classes, kernel_size=3, padding=1)
-        self.cl_extra_conv3b = nn.Conv2d(256//2, n_boxes['extra_conv3b'] * n_classes, kernel_size=3, padding=1)
-
-        # Initialize convolutions' parameters
-        self.init_conv2d()
-
-    def init_conv2d(self):
-        """
-        Initialize convolution parameters.
-        """
-        for c in self.modules():
-            if isinstance(c, nn.Conv2d):
-                nn.init.xavier_uniform_(c.weight)
-                if c.bias is not None:
-                    nn.init.constant_(c.bias, 0.)
-
-    def forward(self, image, base_8s_feats, base_16s_feats, base_32s_feats,
-                extra_conv1b_feats, extra_conv2b_feats, extra_conv3b_feats):
-        """
-        Forward propagation.
-
-        :param base_8s_feats: base_8s feature map, a tensor of dimensions (N, C, 44, 44)
-        :param base_16s_feats: base_16s feature map, a tensor of dimensions (N, C, 22, 22)
-        :param base_32s_feats: base_32s feature map, a tensor of dimensions (N, C, 11, 11)
-        :param extra_conv1b_feats: extra_conv1b feature map, a tensor of dimensions (N, C, 5, 5)
-        :param extra_conv2b_feats: extra_conv2b feature map, a tensor of dimensions (N, C, 3, 3)
-        :param extra_conv3b_feats: extra_conv3b feature map, a tensor of dimensions (N, C, 1, 1)
-        :return: pre-calculated locations and class scores (i.e. w.r.t each prior box) for each image
-        """
-
-
-        # for 16s detection
-        base_16s_feats_ = self.base_16s_CBR(base_16s_feats)
-
-        # for 8s detection
-        base_8s_feats_ = F.interpolate(base_16s_feats_, scale_factor=2, mode='bilinear', align_corners=False)
-        base_8s_feats = torch.cat([base_8s_feats, base_8s_feats_], 1)
-        base_8s_feats = self.base_8s_CBR(base_8s_feats)
-        # base_8s_feats = self.base_8s_C3BlockB(base_8s_feats)
-
-        # for 16s detection
-        base_16s_feats = self.base_16s_DepDown(base_8s_feats)
-        # base_16s_feats = self.base_16s_C3BlockB(base_16s_feats)
-
-        # for Segmentation
-        # base_8s_feats_seg = self.base_8s_CBR_seg(torch.cat([self.sample(image), base_8s_feats], 1))
-        # base_8s_feats_seg = self.base_8s_C3BlockB_seg(base_8s_feats_seg)
-        # base_8s_feats_seg = self.base_8s_seg_pred(base_8s_feats_seg)
-        # base_8s_feats_seg = self.upsample_seg_pred(base_8s_feats_seg)
-
-        # for 32s detection
-        base_32s_feats = self.base_32s_CBR(base_32s_feats)
-        # base_32s_feats = self.base_32s_C3BlockB(base_32s_feats)
-
-        extra_conv1b_feats = self.extra_conv1b_CBR(extra_conv1b_feats)
-        extra_conv2b_feats = self.extra_conv2b_CBR(extra_conv2b_feats)
-        extra_conv3b_feats = self.extra_conv3b_CBR(extra_conv3b_feats)
-
-        batch_size = base_8s_feats.size(0)
-
-        # Predict localization boxes' bounds (as offsets w.r.t prior-boxes)
-        l_base_8s = self.loc_base_8s(base_8s_feats)  # (N, C, 44, 44)
-        l_base_8s = l_base_8s.permute(0, 2, 3,
-                                      1).contiguous()  # (N, 44, 44, C), to match prior-box order (after .view())
-        # (.contiguous() ensures it is stored in a contiguous chunk of memory, needed for .view() below)
-        l_base_8s = l_base_8s.view(batch_size, -1, 4)  # (N, 44x44x4, 4), there are a total 44x44x4 boxes on this feature map
-
-        l_base_16s = self.loc_base_16s(base_16s_feats)  # (N, C, 22, 22)
-        l_base_16s = l_base_16s.permute(0, 2, 3, 1).contiguous()  # (N, 22, 22, C)
-        l_base_16s = l_base_16s.view(batch_size, -1, 4)  # (N, 22x22x6, 4), there are a total 22x22x6 boxes on this feature map
-
-        l_base_32s = self.loc_base_32s(base_32s_feats)  # (N, C, 11, 11)
-        l_base_32s = l_base_32s.permute(0, 2, 3, 1).contiguous()  # (N, 11, 11, C)
-        l_base_32s = l_base_32s.view(batch_size, -1, 4)  # (N, 11x11x6, 4)
-
-        l_extra_conv1b = self.loc_extra_conv1b(extra_conv1b_feats)  # (N, C, 5, 5)
-        l_extra_conv1b = l_extra_conv1b.permute(0, 2, 3, 1).contiguous()  # (N, 5, 5, C)
-        l_extra_conv1b = l_extra_conv1b.view(batch_size, -1, 4)  # (N, 5x5x6, 4)
-
-        l_extra_conv2b = self.loc_extra_conv2b(extra_conv2b_feats)  # (N, C, 3, 3)
-        l_extra_conv2b = l_extra_conv2b.permute(0, 2, 3, 1).contiguous()  # (N, 3, 3, C)
-        l_extra_conv2b = l_extra_conv2b.view(batch_size, -1, 4)  # (N, 3x3x4, 4)
-
-        l_extra_conv3b = self.loc_extra_conv3b(extra_conv3b_feats)  # (N, C, 1, 1)
-        l_extra_conv3b = l_extra_conv3b.permute(0, 2, 3, 1).contiguous()  # (N, 1, 1, C)
-        l_extra_conv3b = l_extra_conv3b.view(batch_size, -1, 4)  # (N, 1x1x4, 4)
-
-        # Predict classes in localization boxes
-        c_base_8s = self.cl_base_8s(base_8s_feats)  # (N, 4 * n_classes, 44, 44)
-        c_base_8s = c_base_8s.permute(0, 2, 3,
-                                      1).contiguous()  # (N, 44, 44, 4 * n_classes), to match prior-box order (after .view())
-        c_base_8s = c_base_8s.view(batch_size, -1,
-                                   self.n_classes)  # (N, 44x44x4, n_classes), there are a total 44x44x4 boxes on this feature map
-
-        c_base_16s = self.cl_base_16s(base_16s_feats)  # (N, 6 * n_classes, 22, 22)
-        c_base_16s = c_base_16s.permute(0, 2, 3, 1).contiguous()  # (N, 22, 22, 6 * n_classes)
-        c_base_16s = c_base_16s.view(batch_size, -1,
-                               self.n_classes)  # (N, 22x22x6, n_classes), there are a total 22x22x6 boxes on this feature map
-
-        c_base_32s = self.cl_base_32s(base_32s_feats)  # (N, 6 * n_classes, 11, 11)
-        c_base_32s = c_base_32s.permute(0, 2, 3, 1).contiguous()  # (N, 11, 11, 6 * n_classes)
-        c_base_32s = c_base_32s.view(batch_size, -1, self.n_classes)  # (N, 11x11x6, n_classes)
-
-        c_extra_conv1b = self.cl_extra_conv1b(extra_conv1b_feats)  # (N, 6 * n_classes, 5, 5)
-        c_extra_conv1b = c_extra_conv1b.permute(0, 2, 3, 1).contiguous()  # (N, 5, 5, 6 * n_classes)
-        c_extra_conv1b = c_extra_conv1b.view(batch_size, -1, self.n_classes)  # (N, 5x5x6, n_classes)
-
-        c_extra_conv2b = self.cl_extra_conv2b(extra_conv2b_feats)  # (N, 4 * n_classes, 3, 3)
-        c_extra_conv2b = c_extra_conv2b.permute(0, 2, 3, 1).contiguous()  # (N, 3, 3, 4 * n_classes)
-        c_extra_conv2b = c_extra_conv2b.view(batch_size, -1, self.n_classes)  # (N, 3x3x4, n_classes)
-
-        c_extra_conv3b = self.cl_extra_conv3b(extra_conv3b_feats)  # (N, 4 * n_classes, 1, 1)
-        c_extra_conv3b = c_extra_conv3b.permute(0, 2, 3, 1).contiguous()  # (N, 1, 1, 4 * n_classes)
-        c_extra_conv3b = c_extra_conv3b.view(batch_size, -1, self.n_classes)  # (N, 1x1x4, n_classes)
-
-        # Concatenate in this specific order (i.e. must match the order of the prior-boxes)
-        locs = torch.cat([l_base_8s, l_base_16s, l_base_32s, l_extra_conv1b, l_extra_conv2b, l_extra_conv3b], dim=1)  # (N, pre-calculated, 4)
-        classes_scores = torch.cat([c_base_8s, c_base_16s, c_base_32s, c_extra_conv1b, c_extra_conv2b, c_extra_conv3b],
-                                   dim=1)  # (N, pre-calculated, n_classes)
-
-        # return locs, classes_scores, base_8s_feats_seg
-        return locs, classes_scores
-
 
 class SSD352EFFB0(nn.Module):
     """
@@ -1174,8 +981,7 @@ def netParams(model):
 
 if __name__ == "__main__":
     from thop import profile
-    model = SSD352(n_classes=11)
-    #print(model)
+    model = SSD352(n_classes=5)
     # print("params: {}".format(netParams(model)))
     # flops, params = profile(model, input_size=(1, 3, 352, 352))
     # print("flops: {:.2f}G, params: {:.2f}M".format(flops/1e9, params/1e6))
@@ -1185,3 +991,207 @@ if __name__ == "__main__":
     #
     # mobilenet_base = mobilenet()
     # torch.onnx.export(mobilenet_base, dummy_input, os.path.join("./", "mobilenet.onnx"))
+    
+    
+    
+    
+
+    
+########################################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+########################################################################################################
+class PredictionConvolutions(nn.Module):
+    """
+    Convolutions to predict class scores and bounding boxes using lower and higher-level feature maps.
+
+    The bounding boxes (locations) are predicted as encoded offsets w.r.t each of the pre-calculated prior (default) boxes.
+    See 'cxcy_to_gcxgcy' in utils.py for the encoding definition.
+
+    The class scores represent the scores of each object class in each of the pre-calculated bounding boxes located.
+    A high score for 'background' = no object.
+    """
+
+    def __init__(self, n_classes):
+        """
+        :param n_classes: number of different types of objects
+        """
+        super(PredictionConvolutions, self).__init__()
+
+        self.n_classes = n_classes
+
+        # Number of prior-boxes we are considering per position in each feature map
+        n_boxes = {'base_8s': 4,
+                   'base_16s': 6,
+                   'base_32s': 6,
+                   'extra_conv1b': 6,
+                   'extra_conv2b': 4,
+                   'extra_conv3b': 4}
+        # 4 prior-boxes implies we use 4 different aspect ratios, etc.
+
+        # for 8s detection
+        self.base_8s_CBR = CBR(512, 256//2, 1)
+        # self.base_8s_C3BlockB = C3BlockB(256, 256 // 2)
+
+        # for 16s detection
+        self.base_16s_CBR = CBR(512, 256, 1)
+        # self.base_16s_DepDown = DepthWiseBlock(256//2, 256//2, 2, 1)
+        self.base_16s_DepDown = CBR(256//2, 256//2, 3, 2, 1)
+        # self.base_16s_C3BlockB = C3BlockB(256 // 2, 256 // 2)
+
+        # for 32s detection
+        self.base_32s_CBR = CBR(512, 256//2, 1)
+        # self.base_32s_C3BlockB = C3BlockB(256, 256 // 2)
+
+        # for extra detection
+        # self.extra_conv1b_C3BlockB = C3BlockB(256, 256 // 2)
+        # self.extra_conv2b_C3BlockB = C3BlockB(256, 256 // 2)
+        # self.extra_conv3b_C3BlockB = C3BlockB(256, 256 // 2)
+        self.extra_conv1b_CBR = CBR(256, 256 // 2, 1)
+        self.extra_conv2b_CBR = CBR(256, 256 // 2, 1)
+        self.extra_conv3b_CBR = CBR(256, 256 // 2, 1)
+
+        # for segmentation
+        # self.sample = InputProjectionA(3)
+        # self.base_8s_CBR_seg = CBR(256//2+3, 128, 1)
+        # self.base_8s_C3BlockB_seg = C3BlockB(128, 128 // 2)
+        # self.base_8s_seg_pred = nn.Conv2d(128//2, 2, kernel_size=1, padding=0)
+        # self.upsample_seg_pred = nn.Upsample(scale_factor=8, mode='bilinear',align_corners=False)
+
+        # Localization prediction convolutions (predict offsets w.r.t prior-boxes)
+        self.loc_base_8s = nn.Conv2d(256//2, n_boxes['base_8s'] * 4, kernel_size=3, padding=1)
+        self.loc_base_16s = nn.Conv2d(256//2, n_boxes['base_16s'] * 4, kernel_size=3, padding=1)
+        self.loc_base_32s = nn.Conv2d(256//2, n_boxes['base_32s'] * 4, kernel_size=3, padding=1)
+        self.loc_extra_conv1b = nn.Conv2d(256//2, n_boxes['extra_conv1b'] * 4, kernel_size=3, padding=1)
+        self.loc_extra_conv2b = nn.Conv2d(256//2, n_boxes['extra_conv2b'] * 4, kernel_size=3, padding=1)
+        self.loc_extra_conv3b = nn.Conv2d(256//2, n_boxes['extra_conv3b'] * 4, kernel_size=3, padding=1)
+
+        # Class prediction convolutions (predict classes in localization boxes)
+        self.cl_base_8s = nn.Conv2d(256//2, n_boxes['base_8s'] * n_classes, kernel_size=3, padding=1)
+        self.cl_base_16s = nn.Conv2d(256//2, n_boxes['base_16s'] * n_classes, kernel_size=3, padding=1)
+        self.cl_base_32s = nn.Conv2d(256//2, n_boxes['base_32s'] * n_classes, kernel_size=3, padding=1)
+        self.cl_extra_conv1b = nn.Conv2d(256//2, n_boxes['extra_conv1b'] * n_classes, kernel_size=3, padding=1)
+        self.cl_extra_conv2b = nn.Conv2d(256//2, n_boxes['extra_conv2b'] * n_classes, kernel_size=3, padding=1)
+        self.cl_extra_conv3b = nn.Conv2d(256//2, n_boxes['extra_conv3b'] * n_classes, kernel_size=3, padding=1)
+
+        # Initialize convolutions' parameters
+        self.init_conv2d()
+
+    def init_conv2d(self):
+        """
+        Initialize convolution parameters.
+        """
+        for c in self.modules():
+            if isinstance(c, nn.Conv2d):
+                nn.init.xavier_uniform_(c.weight)
+                if c.bias is not None:
+                    nn.init.constant_(c.bias, 0.)
+
+    def forward(self, image, base_8s_feats, base_16s_feats, base_32s_feats,
+                extra_conv1b_feats, extra_conv2b_feats, extra_conv3b_feats):
+        """
+        Forward propagation.
+
+        :param base_8s_feats: base_8s feature map, a tensor of dimensions (N, C, 44, 44)
+        :param base_16s_feats: base_16s feature map, a tensor of dimensions (N, C, 22, 22)
+        :param base_32s_feats: base_32s feature map, a tensor of dimensions (N, C, 11, 11)
+        :param extra_conv1b_feats: extra_conv1b feature map, a tensor of dimensions (N, C, 5, 5)
+        :param extra_conv2b_feats: extra_conv2b feature map, a tensor of dimensions (N, C, 3, 3)
+        :param extra_conv3b_feats: extra_conv3b feature map, a tensor of dimensions (N, C, 1, 1)
+        :return: pre-calculated locations and class scores (i.e. w.r.t each prior box) for each image
+        """
+
+
+        # for 16s detection
+        base_16s_feats_ = self.base_16s_CBR(base_16s_feats)
+
+        # for 8s detection
+        base_8s_feats_ = F.interpolate(base_16s_feats_, scale_factor=2, mode='bilinear', align_corners=False)
+        base_8s_feats = torch.cat([base_8s_feats, base_8s_feats_], 1)
+        base_8s_feats = self.base_8s_CBR(base_8s_feats)
+        # base_8s_feats = self.base_8s_C3BlockB(base_8s_feats)
+
+        # for 16s detection
+        base_16s_feats = self.base_16s_DepDown(base_8s_feats)
+        # base_16s_feats = self.base_16s_C3BlockB(base_16s_feats)
+
+        # for Segmentation
+        # base_8s_feats_seg = self.base_8s_CBR_seg(torch.cat([self.sample(image), base_8s_feats], 1))
+        # base_8s_feats_seg = self.base_8s_C3BlockB_seg(base_8s_feats_seg)
+        # base_8s_feats_seg = self.base_8s_seg_pred(base_8s_feats_seg)
+        # base_8s_feats_seg = self.upsample_seg_pred(base_8s_feats_seg)
+
+        # for 32s detection
+        base_32s_feats = self.base_32s_CBR(base_32s_feats)
+        # base_32s_feats = self.base_32s_C3BlockB(base_32s_feats)
+
+        extra_conv1b_feats = self.extra_conv1b_CBR(extra_conv1b_feats)
+        extra_conv2b_feats = self.extra_conv2b_CBR(extra_conv2b_feats)
+        extra_conv3b_feats = self.extra_conv3b_CBR(extra_conv3b_feats)
+
+        batch_size = base_8s_feats.size(0)
+
+        # Predict localization boxes' bounds (as offsets w.r.t prior-boxes)
+        l_base_8s = self.loc_base_8s(base_8s_feats)  # (N, C, 44, 44)
+        l_base_8s = l_base_8s.permute(0, 2, 3,
+                                      1).contiguous()  # (N, 44, 44, C), to match prior-box order (after .view())
+        # (.contiguous() ensures it is stored in a contiguous chunk of memory, needed for .view() below)
+        l_base_8s = l_base_8s.view(batch_size, -1, 4)  # (N, 44x44x4, 4), there are a total 44x44x4 boxes on this feature map
+
+        l_base_16s = self.loc_base_16s(base_16s_feats)  # (N, C, 22, 22)
+        l_base_16s = l_base_16s.permute(0, 2, 3, 1).contiguous()  # (N, 22, 22, C)
+        l_base_16s = l_base_16s.view(batch_size, -1, 4)  # (N, 22x22x6, 4), there are a total 22x22x6 boxes on this feature map
+
+        l_base_32s = self.loc_base_32s(base_32s_feats)  # (N, C, 11, 11)
+        l_base_32s = l_base_32s.permute(0, 2, 3, 1).contiguous()  # (N, 11, 11, C)
+        l_base_32s = l_base_32s.view(batch_size, -1, 4)  # (N, 11x11x6, 4)
+
+        l_extra_conv1b = self.loc_extra_conv1b(extra_conv1b_feats)  # (N, C, 5, 5)
+        l_extra_conv1b = l_extra_conv1b.permute(0, 2, 3, 1).contiguous()  # (N, 5, 5, C)
+        l_extra_conv1b = l_extra_conv1b.view(batch_size, -1, 4)  # (N, 5x5x6, 4)
+
+        l_extra_conv2b = self.loc_extra_conv2b(extra_conv2b_feats)  # (N, C, 3, 3)
+        l_extra_conv2b = l_extra_conv2b.permute(0, 2, 3, 1).contiguous()  # (N, 3, 3, C)
+        l_extra_conv2b = l_extra_conv2b.view(batch_size, -1, 4)  # (N, 3x3x4, 4)
+
+        l_extra_conv3b = self.loc_extra_conv3b(extra_conv3b_feats)  # (N, C, 1, 1)
+        l_extra_conv3b = l_extra_conv3b.permute(0, 2, 3, 1).contiguous()  # (N, 1, 1, C)
+        l_extra_conv3b = l_extra_conv3b.view(batch_size, -1, 4)  # (N, 1x1x4, 4)
+
+        # Predict classes in localization boxes
+        c_base_8s = self.cl_base_8s(base_8s_feats)  # (N, 4 * n_classes, 44, 44)
+        c_base_8s = c_base_8s.permute(0, 2, 3,
+                                      1).contiguous()  # (N, 44, 44, 4 * n_classes), to match prior-box order (after .view())
+        c_base_8s = c_base_8s.view(batch_size, -1,
+                                   self.n_classes)  # (N, 44x44x4, n_classes), there are a total 44x44x4 boxes on this feature map
+
+        c_base_16s = self.cl_base_16s(base_16s_feats)  # (N, 6 * n_classes, 22, 22)
+        c_base_16s = c_base_16s.permute(0, 2, 3, 1).contiguous()  # (N, 22, 22, 6 * n_classes)
+        c_base_16s = c_base_16s.view(batch_size, -1,
+                               self.n_classes)  # (N, 22x22x6, n_classes), there are a total 22x22x6 boxes on this feature map
+
+        c_base_32s = self.cl_base_32s(base_32s_feats)  # (N, 6 * n_classes, 11, 11)
+        c_base_32s = c_base_32s.permute(0, 2, 3, 1).contiguous()  # (N, 11, 11, 6 * n_classes)
+        c_base_32s = c_base_32s.view(batch_size, -1, self.n_classes)  # (N, 11x11x6, n_classes)
+
+        c_extra_conv1b = self.cl_extra_conv1b(extra_conv1b_feats)  # (N, 6 * n_classes, 5, 5)
+        c_extra_conv1b = c_extra_conv1b.permute(0, 2, 3, 1).contiguous()  # (N, 5, 5, 6 * n_classes)
+        c_extra_conv1b = c_extra_conv1b.view(batch_size, -1, self.n_classes)  # (N, 5x5x6, n_classes)
+
+        c_extra_conv2b = self.cl_extra_conv2b(extra_conv2b_feats)  # (N, 4 * n_classes, 3, 3)
+        c_extra_conv2b = c_extra_conv2b.permute(0, 2, 3, 1).contiguous()  # (N, 3, 3, 4 * n_classes)
+        c_extra_conv2b = c_extra_conv2b.view(batch_size, -1, self.n_classes)  # (N, 3x3x4, n_classes)
+
+        c_extra_conv3b = self.cl_extra_conv3b(extra_conv3b_feats)  # (N, 4 * n_classes, 1, 1)
+        c_extra_conv3b = c_extra_conv3b.permute(0, 2, 3, 1).contiguous()  # (N, 1, 1, 4 * n_classes)
+        c_extra_conv3b = c_extra_conv3b.view(batch_size, -1, self.n_classes)  # (N, 1x1x4, n_classes)
+
+        # Concatenate in this specific order (i.e. must match the order of the prior-boxes)
+        locs = torch.cat([l_base_8s, l_base_16s, l_base_32s, l_extra_conv1b, l_extra_conv2b, l_extra_conv3b], dim=1)  # (N, pre-calculated, 4)
+        classes_scores = torch.cat([c_base_8s, c_base_16s, c_base_32s, c_extra_conv1b, c_extra_conv2b, c_extra_conv3b],
+                                   dim=1)  # (N, pre-calculated, n_classes)
+
+        # return locs, classes_scores, base_8s_feats_seg
+        return locs, classes_scores

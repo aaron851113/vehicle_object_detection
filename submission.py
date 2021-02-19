@@ -72,7 +72,7 @@ with open('../AIdea/ivslab_test_public/submission.csv', 'w', newline='') as file
         original_image = Image.open(img_path, mode='r')
         original_image = original_image.convert('RGB')
         
-        det_boxes, det_labels, det_scores = detect(original_image, img_name, min_score=0.5, max_overlap=0.5, top_k=50, save_img=False)
+        det_boxes, det_labels, det_scores = detect(original_image, img_name, min_score=0.3, max_overlap=0.5, top_k=50, save_img=False)
         
         if det_labels == ['background']:
             continue

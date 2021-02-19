@@ -90,7 +90,7 @@ def detect(original_image, img_name, min_score, max_overlap, top_k, save_img, su
     if save_img:
         cv2.imwrite('./demo/demo_'+img_name,frame_pil_img)
     
-    del annotate_image
+    del annotate_image, frame_pil_img
         
     return det_boxes, det_labels, det_scores
 
