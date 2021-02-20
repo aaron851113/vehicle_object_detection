@@ -31,11 +31,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Learning parameters
 checkpoint = None  # path to model checkpoint, None if none
 batch_size = 16  # batch size
-iterations = 80000  # number of iterations to train
+iterations = 120000  # number of iterations to train
 workers = 0  # number of workers for loading data in the DataLoader
 print_freq = 100  # print training status every __ batches
 lr = 1e-4  # learning rate
-decay_lr_at = [50000, 80000]  # decay learning rate after these many iterations
+decay_lr_at = [70000, 120000]  # decay learning rate after these many iterations
 decay_lr_to = 0.1  # decay learning rate to this fraction of the existing learning rate
 momentum = 0.9  # momentum
 weight_decay = 5e-5  # weight decay
@@ -110,7 +110,8 @@ def main():
     epochs = iterations // (len(train_dataset) // batch_size)
     decay_lr_at = [it // (len(train_dataset) // batch_size) for it in decay_lr_at]
 
-    bestmAP = 0.
+    best_loss = 1e5
+    best_epoch = 0
 
     # Epochs
     for epoch in range(start_epoch, epochs):
@@ -120,19 +121,17 @@ def main():
             adjust_learning_rate(optimizer, decay_lr_to)
 
         # One epoch's training
-        train(train_loader=train_loader,
-              model=model,
-              optimizer=optimizer,
-              epoch=epoch,
-              epochs=epochs)
-        mAP = evaluate(test_loader, model)
+        loss = train(train_loader=train_loader, model=model, optimizer=optimizer, epoch=epoch, epochs=epochs, scheduler=scheduler)
+        #mAP = evaluate(test_loader, model)
         # Save checkpoint
-        if mAP > bestmAP:
-            save_bestcheckpoint(epoch, model, optimizer)
-        save_checkpoint(epoch, model, optimizer)
+        #if mAP > bestmAP:
+        
+        if loss < best_loss:
+            best_loss = loss
+            best_epoch = epoch
+            save_checkpoint(model, f'efficientdet-d1_{best_epoch}.pth')
 
-
-def train(train_loader, model, optimizer, epoch,epochs):
+def train(train_loader, model, optimizer, epoch, epochs, scheduler):
     
     model.train()  # training mode enables dropout
 
@@ -183,7 +182,9 @@ def train(train_loader, model, optimizer, epoch,epochs):
                                                                   batch_time=batch_time,
                                                                   data_time=data_time, loss=losses))
     scheduler.step(np.mean(epoch_loss))
-    del cls_loss, reg_loss, images, boxes, labels  # free some memory since their histories may be stored
+    del cls_loss, reg_loss, images, annotations  # free some memory since their histories may be stored
+    
+    return losses
 
 
 if __name__ == '__main__':
