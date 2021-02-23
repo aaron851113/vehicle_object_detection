@@ -126,8 +126,8 @@ def main():
         # Save checkpoint
         #if mAP > bestmAP:
         
-        if loss < best_loss:
-            best_loss = loss
+        if loss.avg < best_loss:
+            best_loss = loss.avg
             best_epoch = epoch
             save_checkpoint(model, f'efficientdet-d1_{best_epoch}.pth')
 

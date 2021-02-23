@@ -625,8 +625,8 @@ def transform(image, annotations, dim, split):
 
         # Expand image (zoom out) with a 50% chance - helpful for training detection of small objects
         # Fill surrounding space with the mean of ImageNet data that our base VGG was trained on
-        if random.random() < 0.5:
-            new_image, new_annotations[:4]  = expand(new_image, new_annotations[:4] , filler=mean)
+        #if random.random() < 0.5:
+        #    new_image, new_annotations[:, :4]  = expand(new_image, new_annotations[:, :4] , filler=mean)
 
         # Randomly crop image (zoom in)
         #new_image, new_annotations[:4] = random_crop(new_image, new_annotations[:4])
