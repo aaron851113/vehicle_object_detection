@@ -412,8 +412,10 @@ class Classifier(nn.Module):
             feats.append(feat)
 
         feats = torch.cat(feats, dim=1)
+        #print(feats.shape)
+        #print("feats : {}".format(feats))
         feats = feats.sigmoid()
-
+        #print("feats : {}".format(feats))
         return feats
 
 

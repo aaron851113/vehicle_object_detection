@@ -4,10 +4,8 @@ import torch.optim
 import torch.utils.data
 from datasets import PascalVOCDataset
 from utils import *
-from eval import evaluate
 import warnings
 
-from tqdm.autonotebook import tqdm
 from backbone import EfficientDetBackbone
 from efficientdet.loss import FocalLoss
 import traceback
@@ -25,17 +23,17 @@ keep_difficult = True  # use objects considered difficult to detect?
 
 # Model parameters
 # Not too many here since the SSD300 has a very specific structure
-n_classes = 5  # number of different types of objects
+n_classes = 4  # number of different types of objects
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Learning parameters
 checkpoint = None  # path to model checkpoint, None if none
 batch_size = 16  # batch size
-iterations = 120000  # number of iterations to train
-workers = 0  # number of workers for loading data in the DataLoader
+iterations = 200000  # number of iterations to train
+workers = 8  # number of workers for loading data in the DataLoader
 print_freq = 100  # print training status every __ batches
 lr = 1e-4  # learning rate
-decay_lr_at = [70000, 120000]  # decay learning rate after these many iterations
+decay_lr_at = [100000, 200000]  # decay learning rate after these many iterations
 decay_lr_to = 0.1  # decay learning rate to this fraction of the existing learning rate
 momentum = 0.9  # momentum
 weight_decay = 5e-5  # weight decay
@@ -62,7 +60,7 @@ class ModelWithLoss(nn.Module):
 ########################################################################
 
 input_sizes = [512, 640, 768, 896, 1024, 1280, 1280, 1536, 1536]
-input_use = 1
+input_use = 0
 anchors_scales = '[2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]'
 anchors_ratios = '[(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)]'
 
@@ -93,8 +91,15 @@ def main():
     
     # load last weights / initial wieght
     start_epoch = 0
-    print('[Info] initializing weights...')
+    #print('[Info] initializing weights...')
     init_weights(model)
+    """
+    print('[Info] Loading weights...')
+    state_dict = torch.load('efficientdet-d1.pth')
+    state_dict.pop('classifier.header.pointwise_conv.conv.weight')
+    state_dict.pop('classifier.header.pointwise_conv.conv.bias') 
+    model.load_state_dict(state_dict, strict=False)
+    """
     
     # warp the model with loss function, to reduce the memory usage on gpu0 and speedup
     model = ModelWithLoss(model, debug=False)
@@ -122,14 +127,11 @@ def main():
 
         # One epoch's training
         loss = train(train_loader=train_loader, model=model, optimizer=optimizer, epoch=epoch, epochs=epochs, scheduler=scheduler)
-        #mAP = evaluate(test_loader, model)
-        # Save checkpoint
-        #if mAP > bestmAP:
         
         if loss.avg < best_loss:
             best_loss = loss.avg
             best_epoch = epoch
-            save_checkpoint(model, f'efficientdet-d1_{best_epoch}.pth')
+            save_checkpoint(model, 'efficientdet-d0_BEST.pth')
 
 def train(train_loader, model, optimizer, epoch, epochs, scheduler):
     
@@ -148,7 +150,8 @@ def train(train_loader, model, optimizer, epoch, epochs, scheduler):
         # Move to default device
         images = images.to(device)  # (batch_size (N), 3, 300, 300)
         annotations = [a.to(device) for a in annotations]
-
+        
+        optimizer.zero_grad()
         # Forward prop.
         cls_loss, reg_loss = model(images, annotations, obj_list=None)
         cls_loss = cls_loss.mean()
@@ -158,9 +161,7 @@ def train(train_loader, model, optimizer, epoch, epochs, scheduler):
         if loss == 0 or not torch.isfinite(loss):
             continue
 
-
         # Backward prop.
-        optimizer.zero_grad()
         loss.backward()
 
         # Update model
@@ -172,7 +173,7 @@ def train(train_loader, model, optimizer, epoch, epochs, scheduler):
         batch_time.update(time.time() - start)
 
         start = time.time()
-
+        
         # Print status
         if i % print_freq == 0:
             print('Epoch: [{0}/{1}] iter: [{2}/{3}]\t'

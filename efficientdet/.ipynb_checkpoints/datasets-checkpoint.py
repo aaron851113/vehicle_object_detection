@@ -48,7 +48,7 @@ class PascalVOCDataset(Dataset):
         image = image.convert('RGB')
         
         label_list = []
-        with open(os.path.join(self.data_folder, 'label_map.json'),'r') as f:
+        with open(os.path.join(self.data_folder, 'label_map_effdet.json'),'r') as f:
             label_list = json.load(f)
 
         # Read objects in this image (bounding boxes, labels, difficulties)
@@ -61,7 +61,6 @@ class PascalVOCDataset(Dataset):
             bboxes.append(label_int)
             annotations.append(bboxes)
         annotations = torch.FloatTensor(annotations)  # (n_objects, 4)
-        #difficulties = torch.ByteTensor(objects['difficulties'])  # (n_objects)
 
         # Apply transformations
         image, annotations = transform(image, annotations, dim=self.dim, split=self.split)
