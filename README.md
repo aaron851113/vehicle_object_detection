@@ -8,10 +8,3 @@
 <img src="./efficientnet_ssd/demo/demo_itp_160.jpg" width="300" height="200" />
 <img src="./efficientnet_ssd/demo/demo_itp_218.jpg" width="300" height="200" />
 
-
-### Efficientdet-D1
-- input size : 640
-- backbone : EfficientNet-B1
-- BiFPN
-
-
